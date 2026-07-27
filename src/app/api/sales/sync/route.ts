@@ -1,17 +1,20 @@
 import { withApi, readJson, lisbonDate, isIsoDate, isClosedDay, ApiError } from '@/lib/api';
-import { syncDay } from '@/lib/sales';
+import { syncRange } from '@/lib/sales';
+
+export const maxDuration = 60;
 
 /**
- * Vercel Cron entry point (GET, authorized via CRON_SECRET): syncs yesterday,
- * unless yesterday was a closed weekday (Mondays by default).
+ * Vercel Cron entry point (GET, authorized via CRON_SECRET): syncs yesterday
+ * and refreshes the product/família catalog, unless yesterday was a closed
+ * weekday (Mondays by default).
  */
 export const GET = withApi(async () => {
   const date = lisbonDate(1);
   if (isClosedDay(date)) {
     return { synced: [], skipped: [{ date, reason: 'closed day' }] };
   }
-  const result = await syncDay(date);
-  return { synced: [result], skipped: [] };
+  const synced = await syncRange([date]);
+  return { synced, skipped: [] };
 });
 
 /**
@@ -40,15 +43,17 @@ export const POST = withApi(async (req) => {
     dates = [date];
   }
 
-  const synced = [];
   const skipped = [];
+  const toSync = [];
   for (const date of dates) {
     if (body.force !== true && isClosedDay(date)) {
       skipped.push({ date, reason: 'closed day' });
       continue;
     }
-    synced.push(await syncDay(date));
+    toSync.push(date);
   }
+  // One Zonesoft login for the whole range; also refreshes the catalog.
+  const synced = toSync.length > 0 ? await syncRange(toSync) : [];
   return { synced, skipped };
 });
 

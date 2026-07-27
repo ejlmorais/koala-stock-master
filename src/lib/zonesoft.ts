@@ -22,7 +22,7 @@
 const AUTH_URL = () => process.env.ZONESOFT_AUTH_URL ?? 'https://auth.zonesoft.org';
 const APP_URL = () => process.env.ZONESOFT_APP_URL ?? 'https://client.zonesoft.org';
 
-interface ZsSession {
+export interface ZsSession {
   key: string;
   token: string;
   cookies: string[];
@@ -256,10 +256,61 @@ export function parseSaleItems(html: string): ZsSaleItem[] {
   return items;
 }
 
-export async function fetchDailySales(date: string): Promise<ZsDailySales> {
-  const session = await zonesoftLogin();
+/** Fetch one day of sales reusing an existing session (for range syncs). */
+export async function fetchDailySalesWithSession(
+  session: ZsSession,
+  date: string
+): Promise<ZsDailySales> {
   const { html, link } = await fetchReportExcel(session, date, date);
   const items = parseSaleItems(html);
   const grossTotal = items.reduce((sum, i) => sum + i.gross, 0);
   return { date, items, grossTotal, raw: { link, html } };
+}
+
+export async function fetchDailySales(date: string): Promise<ZsDailySales> {
+  const session = await zonesoftLogin();
+  return fetchDailySalesWithSession(session, date);
+}
+
+export interface ZsCatalogProduct {
+  code: string;
+  name: string;
+  familiaCode: number | null;
+  familiaName: string | null;
+}
+
+/**
+ * Product catalog with family (categoria) mapping, from the same entity
+ * endpoints the backoffice product screens use. Familia 0 means "none"
+ * (internal ingredients) and is stored as null.
+ */
+export async function fetchCatalog(session: ZsSession): Promise<ZsCatalogProduct[]> {
+  const famRes = await zsPost(`${APP_URL()}/familias/getInstances/`, {}, session);
+  if (famRes.status !== 200) {
+    throw new Error(`Zonesoft familias request failed (HTTP ${famRes.status})`);
+  }
+  const familias = new Map<number, string>();
+  for (const row of (famRes.data?.Container ?? []) as Array<Record<string, unknown>>) {
+    if (typeof row?.codigo === 'number' && typeof row?.descricao === 'string') {
+      familias.set(row.codigo, row.descricao);
+    }
+  }
+
+  const prodRes = await zsPost(`${APP_URL()}/produtos/getInstances/`, {}, session);
+  if (prodRes.status !== 200) {
+    throw new Error(`Zonesoft produtos request failed (HTTP ${prodRes.status})`);
+  }
+  const products: ZsCatalogProduct[] = [];
+  for (const row of (prodRes.data?.Container ?? []) as Array<Record<string, unknown>>) {
+    const p = row?.Produto as Record<string, unknown> | undefined;
+    if (!p || p.codigo == null || typeof p.descricao !== 'string') continue;
+    const familia = typeof p.familia === 'number' && p.familia > 0 ? p.familia : null;
+    products.push({
+      code: String(p.codigo),
+      name: p.descricao.trim(),
+      familiaCode: familia,
+      familiaName: familia !== null ? (familias.get(familia) ?? null) : null,
+    });
+  }
+  return products;
 }

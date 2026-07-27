@@ -33,6 +33,18 @@ export const PATCH = withApi(async (req, params) => {
       units_per_sale = COALESCE(${(body.units_per_sale as number) ?? null}, units_per_sale),
       min_level = CASE WHEN ${body.min_level !== undefined}
                        THEN ${(body.min_level as number) ?? null} ELSE min_level END,
+      category = CASE WHEN ${body.category !== undefined}
+                      THEN ${(body.category as string) ?? null} ELSE category END,
+      supplier = CASE WHEN ${body.supplier !== undefined}
+                      THEN ${(body.supplier as string) ?? null} ELSE supplier END,
+      price_net = CASE WHEN ${body.price_net !== undefined}
+                       THEN ${(body.price_net as number) ?? null} ELSE price_net END,
+      iva = CASE WHEN ${body.iva !== undefined}
+                 THEN ${(body.iva as number) ?? null} ELSE iva END,
+      notes = CASE WHEN ${body.notes !== undefined}
+                   THEN ${(body.notes as string) ?? null} ELSE notes END,
+      count_parts = CASE WHEN ${body.count_parts !== undefined}
+                         THEN ${(body.count_parts as string[]) ?? null} ELSE count_parts END,
       active = COALESCE(${(body.active as boolean) ?? null}, active)
     WHERE id = ${id}`;
   return { product: await getProduct(id) };

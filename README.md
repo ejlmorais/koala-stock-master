@@ -52,6 +52,25 @@ Vercel Cron is authorized separately via `CRON_SECRET`.
 | POST | `/api/stock/adjust` | `{ product_id, delta }` (relative) or `{ product_id, qty }` (absolute count after inventory); optional `area`, `note`, `created_by` |
 | GET | `/api/stock/movements?product_id=&area=&reason=&limit=` | the ledger |
 | GET | `/api/stock/alerts` | products at or below `min_level` |
+| POST | `/api/stock/count` | batch counting session: `{ counted_by, counts: [{ product_id, qty, parts?, note? }] }` — stores history + adjusts levels |
+| GET | `/api/stock/count` | latest count per product |
+| GET | `/api/stock/counts?product_id=&limit=` | full counting history (every value ever typed, with sub-count breakdown) |
+
+Counts are absolute truth points: the sales sync only decrements stock for sale dates **on or after** a product's most recent count (earlier sales are already reflected in the counted value).
+
+### Transformations (recipes)
+
+Sale products that consume several stock products (Tosta Mista → pão + queijo + fiambre):
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/api/recipes` | all transformations with resolved names |
+| PUT | `/api/recipes` | `{ zs_code, components: [{ product_id, qty_per_sale }] }` — empty array removes |
+| GET | `/api/recipes/options` | dropdown data: sold Zonesoft products + active stock products |
+
+When a sale item's code has components, they drive the stock decrement; otherwise the 1:1 `zonesoft_name` link applies.
+
+The spreadsheet import lives in `scripts/import-stock.mjs` + `scripts/stock-import.json` (250 products from the bar and kitchen sheets, with categories, suppliers, prices, IVA, reorder points and sub-count layouts).
 
 ### Sales
 
@@ -62,9 +81,14 @@ Vercel Cron is authorized separately via `CRON_SECRET`.
 | GET | `/api/sales?from=&to=&items=true` | daily totals, optionally with per-product items |
 | GET | `/api/sales/top?days=7&by=qty\|gross&limit=20` | top sellers |
 | GET | `/api/sales/weekly?weeks=8` | weekly totals + per-product change vs last week (business weeks: Tuesday → Sunday) |
+| GET | `/api/sales/weeks?weeks=4&familia=9` | per-product totals, one column per business week; `available` lists all synced weeks |
+| GET | `/api/sales/compare?a=2026-07-07&b=2026-07-21&familia=9` | two business weeks side by side per product (weeks keyed by Tuesday start) |
+| GET | `/api/sales/families` | famílias (Zonesoft categories) that have sales, for filters |
 | GET | `/api/sales/outliers?date=&window=28&z=2` | products whose qty deviates ≥ z std-devs from their trailing mean, plus a same-weekday day-total check |
 
 Synced sale items whose name matches a product's `zonesoft_name` (or `name`) automatically decrease that product's stock by `qty × units_per_sale` in the product's area.
+
+Every sync also refreshes `zs_products` — the Zonesoft product catalog (code, name, família) fetched from the backoffice `familias`/`produtos` entity endpoints — which powers the per-família filters.
 
 ### Orders
 

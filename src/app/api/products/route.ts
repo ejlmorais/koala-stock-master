@@ -21,11 +21,18 @@ export const POST = withApi(async (req) => {
   const area = body.area ?? 'bar';
   if (!isArea(area)) throw new ApiError(400, 'area must be "bar" or "kitchen"');
   const rows = await sql()`
-    INSERT INTO products (name, unit, area, zonesoft_name, units_per_sale, min_level)
+    INSERT INTO products (name, unit, area, zonesoft_name, units_per_sale, min_level,
+                          category, supplier, price_net, iva, notes, count_parts)
     VALUES (${name}, ${(body.unit as string) ?? 'un'}, ${area},
             ${(body.zonesoft_name as string) ?? null},
             ${(body.units_per_sale as number) ?? 1},
-            ${(body.min_level as number) ?? null})
+            ${(body.min_level as number) ?? null},
+            ${(body.category as string) ?? null},
+            ${(body.supplier as string) ?? null},
+            ${(body.price_net as number) ?? null},
+            ${(body.iva as number) ?? null},
+            ${(body.notes as string) ?? null},
+            ${(body.count_parts as string[]) ?? null})
     ON CONFLICT (name) DO NOTHING
     RETURNING *`;
   if (!rows[0]) throw new ApiError(409, `product "${name}" already exists`);

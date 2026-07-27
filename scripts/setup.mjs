@@ -109,6 +109,56 @@ await sql`
 await sql`ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS zs_code text`;
 
 await sql`
+  CREATE TABLE IF NOT EXISTS zs_products (
+    code text PRIMARY KEY,
+    name text NOT NULL,
+    familia_code integer,
+    familia_name text,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`;
+
+// Catalog metadata mirrored from the stock spreadsheets.
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS category text`;
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS supplier text`;
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS price_net numeric(12,4)`;
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS iva numeric(5,2)`;
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS notes text`;
+// Sub-count labels for the counting page (e.g. {Frios,Naturais,Armazém}).
+// A label prefixed with '!' is recorded but NOT added to the stock total
+// (e.g. !Vazios — empty kegs worth tracking for reorders).
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS count_parts text[]`;
+
+// Every submitted count, kept forever (the ledger stores the delta; this
+// stores what was actually typed, including the per-part breakdown).
+await sql`
+  CREATE TABLE IF NOT EXISTS stock_counts (
+    id serial PRIMARY KEY,
+    product_id integer NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    qty numeric(12,3) NOT NULL,
+    parts jsonb,
+    previous_qty numeric(12,3),
+    note text,
+    counted_by text,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`;
+
+await sql`
+  CREATE INDEX IF NOT EXISTS stock_counts_product_idx
+  ON stock_counts (product_id, created_at DESC)`;
+
+// Transformations: one Zonesoft sale product consumes N stock products
+// (e.g. Tosta Mista → pão + queijo + fiambre). When a sale item's code has
+// rows here, these drive the stock decrement instead of zonesoft_name.
+await sql`
+  CREATE TABLE IF NOT EXISTS sale_components (
+    id serial PRIMARY KEY,
+    zs_code text NOT NULL,
+    product_id integer NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    qty_per_sale numeric(12,4) NOT NULL,
+    UNIQUE (zs_code, product_id)
+  )`;
+
+await sql`
   CREATE INDEX IF NOT EXISTS sale_items_name_date_idx
   ON sale_items (product_name, sale_date)`;
 
