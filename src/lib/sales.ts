@@ -86,6 +86,12 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
   let matched = 0;
   let movementCount = 0;
 
+  // Global kill switch: while 'sales_decrement' is off, sales are stored and
+  // matched but never move stock (used until the team finishes the first real
+  // count). Toggle via PUT /api/settings.
+  const settings = await sql()`SELECT value FROM app_settings WHERE key = 'sales_decrement'`;
+  const decrementEnabled = settings[0]?.value !== 'off';
+
   // A physical count is an absolute truth point: sales that happened BEFORE a
   // product's latest count are already reflected in it, so applying them
   // again would double-subtract. Only sales on/after the count date move stock.
@@ -97,6 +103,7 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
     countDates.set(row.product_id as number, row.last_count as string);
   }
   const stockApplies = (productId: number) => {
+    if (!decrementEnabled) return false;
     const lastCount = countDates.get(productId);
     return !lastCount || date >= lastCount;
   };

@@ -158,6 +158,20 @@ await sql`
     UNIQUE (zs_code, product_id)
   )`;
 
+// Stock units received per ordered pack (Coca Cola: 1 grade = 24 garrafas).
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_size numeric(12,3) NOT NULL DEFAULT 1`;
+
+// Small key/value switchboard (e.g. sales_decrement on/off).
+await sql`
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key text PRIMARY KEY,
+    value text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  )`;
+await sql`
+  INSERT INTO app_settings (key, value) VALUES ('sales_decrement', 'off')
+  ON CONFLICT (key) DO NOTHING`;
+
 await sql`
   CREATE INDEX IF NOT EXISTS sale_items_name_date_idx
   ON sale_items (product_name, sale_date)`;

@@ -26,7 +26,8 @@ export async function getOrder(id: number) {
   const order = orders[0] as unknown as Order | undefined;
   if (!order) throw new ApiError(404, `order ${id} not found`);
   const items = await sql()`
-    SELECT i.*, p.name AS product_name, p.unit, p.area AS product_area
+    SELECT i.*, p.name AS product_name, p.unit, p.area AS product_area,
+           p.pack_size, i.qty * p.pack_size AS stock_qty
     FROM order_items i
     JOIN products p ON p.id = i.product_id
     WHERE i.order_id = ${id}
@@ -91,9 +92,10 @@ export async function updateOrder(
 }
 
 /**
- * Marks an order received and increases stock for every item, in the item's
- * area override or the product's default area. `receivedBy` lands in the
- * movement ledger.
+ * Marks an order received and increases stock for every item. Order items are
+ * counted in PACKS: receiving multiplies by the product's pack_size (1 grade
+ * de Coca Cola → 24 garrafas; 1 pack de Abacate → 8 kg). `receivedBy` lands
+ * in the movement ledger.
  */
 export async function receiveOrder(id: number, receivedBy?: string | null) {
   const order = await getOrder(id);
@@ -103,18 +105,21 @@ export async function receiveOrder(id: number, receivedBy?: string | null) {
   for (const item of order.items as Array<{
     product_id: number;
     qty: string;
+    pack_size: string;
     area: Area | null;
     product_area: Area;
     product_name: string;
   }>) {
+    const packs = Number(item.qty);
+    const units = packs * Number(item.pack_size ?? 1);
     await applyMovement({
       productId: item.product_id,
       area: item.area ?? item.product_area,
-      delta: Number(item.qty),
+      delta: units,
       reason: 'order',
       refType: 'order',
       refId: String(id),
-      note: `Received from ${order.supplier}`,
+      note: `Recebido de ${order.supplier} (${packs} × ${item.pack_size ?? 1})`,
       createdBy: receivedBy ?? null,
     });
   }
