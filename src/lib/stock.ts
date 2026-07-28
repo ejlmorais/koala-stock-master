@@ -44,7 +44,7 @@ export async function stockLevels(area?: Area) {
 /** Products whose total stock (across areas) is at or below their min_level. */
 export async function lowStockAlerts() {
   return sql()`
-    SELECT p.id AS product_id, p.name, p.unit, p.area, p.min_level,
+    SELECT p.id AS product_id, p.name, p.unit, p.area, p.category, p.min_level,
            COALESCE(SUM(l.qty), 0) AS qty
     FROM products p
     LEFT JOIN stock_levels l ON l.product_id = p.id
