@@ -281,20 +281,27 @@ export async function salesFamilies() {
 
 /**
  * Weekly average per product over a window: 'ytd' (since Jan 1) or the last
- * N business weeks. Denominator = number of business weeks with sales in the
- * window, so closed periods don't dilute the average.
+ * N business weeks. The CURRENT business week is always excluded — a week in
+ * progress would drag the average down. Denominator = number of complete
+ * business weeks with sales in the window.
  */
 async function weeklyAverages(basis: 'ytd' | number, familiaCode?: number) {
-  const start =
-    basis === 'ytd'
-      ? sql()`SELECT to_char(date_trunc('year', current_date), 'YYYY-MM-DD') AS d`
-      : sql()`SELECT to_char(date_trunc('week', current_date - interval '1 day') + interval '1 day'
-                             - ((${basis} - 1) || ' weeks')::interval, 'YYYY-MM-DD') AS d`;
-  const startDate = ((await start)[0] as { d: string }).d;
+  const bounds = await sql()`
+    SELECT to_char(date_trunc('week', current_date - interval '1 day') + interval '1 day',
+                   'YYYY-MM-DD') AS current_week,
+           to_char(CASE WHEN ${basis === 'ytd'}
+                        THEN date_trunc('year', current_date)
+                        ELSE date_trunc('week', current_date - interval '1 day') + interval '1 day'
+                             - ((${basis === 'ytd' ? 0 : basis}) || ' weeks')::interval
+                   END, 'YYYY-MM-DD') AS start
+  `;
+  const startDate = (bounds[0] as { start: string }).start;
+  const currentWeek = (bounds[0] as { current_week: string }).current_week;
 
   const weekCountRows = await sql()`
     SELECT COUNT(DISTINCT date_trunc('week', sale_date - interval '1 day')) AS n
-    FROM sales_days WHERE sale_date >= ${startDate} AND items_count > 0`;
+    FROM sales_days
+    WHERE sale_date >= ${startDate} AND sale_date < ${currentWeek} AND items_count > 0`;
   const weeksCounted = Number(weekCountRows[0]?.n ?? 0);
 
   const rows = await sql()`
@@ -302,7 +309,7 @@ async function weeklyAverages(basis: 'ytd' | number, familiaCode?: number) {
            SUM(i.qty) AS qty, SUM(i.gross) AS gross
     FROM sale_items i
     LEFT JOIN zs_products p ON p.code = i.zs_code
-    WHERE i.sale_date >= ${startDate}
+    WHERE i.sale_date >= ${startDate} AND i.sale_date < ${currentWeek}
       AND (${familiaCode ?? null}::int IS NULL OR p.familia_code = ${familiaCode ?? null})
     GROUP BY 1, 2, 3`;
 
