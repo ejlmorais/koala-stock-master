@@ -280,11 +280,60 @@ export async function salesFamilies() {
 }
 
 /**
+ * Weekly average per product over a window: 'ytd' (since Jan 1) or the last
+ * N business weeks. Denominator = number of business weeks with sales in the
+ * window, so closed periods don't dilute the average.
+ */
+async function weeklyAverages(basis: 'ytd' | number, familiaCode?: number) {
+  const start =
+    basis === 'ytd'
+      ? sql()`SELECT to_char(date_trunc('year', current_date), 'YYYY-MM-DD') AS d`
+      : sql()`SELECT to_char(date_trunc('week', current_date - interval '1 day') + interval '1 day'
+                             - ((${basis} - 1) || ' weeks')::interval, 'YYYY-MM-DD') AS d`;
+  const startDate = ((await start)[0] as { d: string }).d;
+
+  const weekCountRows = await sql()`
+    SELECT COUNT(DISTINCT date_trunc('week', sale_date - interval '1 day')) AS n
+    FROM sales_days WHERE sale_date >= ${startDate} AND items_count > 0`;
+  const weeksCounted = Number(weekCountRows[0]?.n ?? 0);
+
+  const rows = await sql()`
+    SELECT i.product_name, p.familia_code, p.familia_name,
+           SUM(i.qty) AS qty, SUM(i.gross) AS gross
+    FROM sale_items i
+    LEFT JOIN zs_products p ON p.code = i.zs_code
+    WHERE i.sale_date >= ${startDate}
+      AND (${familiaCode ?? null}::int IS NULL OR p.familia_code = ${familiaCode ?? null})
+    GROUP BY 1, 2, 3`;
+
+  const avg = new Map<
+    string,
+    { qty: number; gross: number; familia_code: number | null; familia_name: string | null }
+  >();
+  if (weeksCounted > 0) {
+    for (const r of rows as Array<Record<string, unknown>>) {
+      avg.set(r.product_name as string, {
+        qty: Number(r.qty) / weeksCounted,
+        gross: Number(r.gross) / weeksCounted,
+        familia_code: (r.familia_code as number) ?? null,
+        familia_name: (r.familia_name as string) ?? null,
+      });
+    }
+  }
+  return { avg, weeksCounted, startDate };
+}
+
+/**
  * Per-product totals for the last N business weeks (Tuesday → Sunday), one
  * column per week, optionally restricted to one família. Weeks are keyed by
- * their Tuesday start date.
+ * their Tuesday start date. `avgBasis` adds a weekly average per product:
+ * 'ytd' or a number of trailing weeks.
  */
-export async function weeksMatrix(weeks: number, familiaCode?: number) {
+export async function weeksMatrix(
+  weeks: number,
+  familiaCode?: number,
+  avgBasis: 'ytd' | number = 'ytd'
+) {
   const rows = await sql()`
     SELECT to_char(date_trunc('week', i.sale_date - interval '1 day') + interval '1 day',
                    'YYYY-MM-DD') AS week_start,
@@ -344,7 +393,42 @@ export async function weeksMatrix(weeks: number, familiaCode?: number) {
       weekTotals[w].gross += cell.gross;
     }
   }
-  return { weeks: weekStarts, week_totals: weekTotals, products };
+
+  const { avg, weeksCounted } = await weeklyAverages(avgBasis, familiaCode);
+  const withAvg = products.map((p) => {
+    const a = avg.get(p.product_name);
+    return { ...p, avg: a ? { qty: a.qty, gross: a.gross } : { qty: 0, gross: 0 } };
+  });
+  // Products that sold in the average window but not in the displayed weeks
+  // still deserve a row (e.g. seasonal items).
+  for (const [name, a] of avg) {
+    if (!byProduct.has(name)) {
+      withAvg.push({
+        product_name: name,
+        familia_code: a.familia_code,
+        familia_name: a.familia_name,
+        weeks: {},
+        total_qty: 0,
+        total_gross: 0,
+        avg: { qty: a.qty, gross: a.gross },
+      });
+    }
+  }
+
+  const avgTotal = { qty: 0, gross: 0 };
+  for (const a of avg.values()) {
+    avgTotal.qty += a.qty;
+    avgTotal.gross += a.gross;
+  }
+
+  return {
+    weeks: weekStarts,
+    week_totals: weekTotals,
+    products: withAvg,
+    avg_basis: avgBasis,
+    avg_weeks_counted: weeksCounted,
+    avg_total: avgTotal,
+  };
 }
 
 /**
