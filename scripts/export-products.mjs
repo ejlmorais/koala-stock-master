@@ -30,7 +30,7 @@ const sql = neon(process.env.DATABASE_URL);
 
 export const HEADERS = [
   'id', 'ativo', 'nome', 'area', 'categoria', 'unidade', 'un_pack',
-  'fornecedores', 'preco_siva', 'iva', 'ponto_encomenda', 'campos_contagem',
+  'fornecedores', 'preco_siva', 'preco_pack', 'iva', 'ponto_encomenda', 'campos_contagem',
   'zonesoft', 'por_venda', 'notas', 'stock_atual (info)', 'valor_stock (info)',
 ];
 
@@ -52,6 +52,7 @@ const table = rows.map((p) => [
   num(p.pack_size),
   p.supplier ?? '',
   num(p.price_net),
+  p.price_net !== null ? String(Math.round(Number(p.price_net) * Number(p.pack_size) * 10000) / 10000) : '',
   num(p.iva),
   num(p.min_level),
   (p.count_parts ?? []).join(','),

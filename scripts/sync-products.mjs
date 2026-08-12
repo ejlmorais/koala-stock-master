@@ -87,6 +87,8 @@ const C = {
   ponto: col('ponto_encomenda'), campos: col('campos_contagem'),
   zonesoft: col('zonesoft'), por_venda: col('por_venda'), notas: col('notas'),
 };
+// Optional column (older files may not have it)
+const precoPackIdx = header.findIndex((h) => h.trim().toLowerCase().startsWith('preco_pack'));
 
 function rowToProduct(r) {
   return {
@@ -100,6 +102,7 @@ function rowToProduct(r) {
     pack_size: numOrNull(r[C.un_pack]) ?? 1,
     supplier: String(r[C.fornecedores] ?? '').trim() || null,
     price_net: numOrNull(r[C.preco]),
+    preco_pack: precoPackIdx === -1 ? null : numOrNull(r[precoPackIdx]),
     iva: numOrNull(r[C.iva]),
     min_level: numOrNull(r[C.ponto]),
     count_parts: String(r[C.campos] ?? '')
@@ -110,6 +113,25 @@ function rowToProduct(r) {
     units_per_sale: numOrNull(r[C.por_venda]) ?? 1,
     notes: String(r[C.notas] ?? '').trim() || null,
   };
+}
+
+/**
+ * preco_siva é por unidade de stock; preco_pack é por embalagem. Se o
+ * utilizador editou o preço do pack, deriva-se o unitário (pack ÷ un_pack);
+ * se editou os dois, o pack ganha.
+ */
+function resolvePackPrice(next, current) {
+  if (next.preco_pack === null) return;
+  const pack = next.pack_size > 0 ? next.pack_size : 1;
+  const fromPack = Math.round((next.preco_pack / pack) * 10000) / 10000;
+  const dbPrice = current.price_net === null ? null : Number(current.price_net);
+  const unitEdited = (next.price_net ?? null) !== (dbPrice ?? null);
+  const packEdited = fromPack !== (dbPrice ?? null);
+  if (packEdited && !unitEdited) next.price_net = fromPack;
+  else if (packEdited && unitEdited) {
+    console.log(`  ⚠️  [${next.id}] ${next.name}: preço unitário e por pack ambos alterados — usa o por pack (${fromPack})`);
+    next.price_net = fromPack;
+  }
 }
 
 const sql = neon(process.env.DATABASE_URL);
@@ -140,11 +162,15 @@ for (const line of lines) {
   const next = rowToProduct(line);
   if (!next.name) continue;
   if (next.id === null) {
+    if (next.price_net === null && next.preco_pack !== null) {
+      next.price_net = Math.round((next.preco_pack / (next.pack_size > 0 ? next.pack_size : 1)) * 10000) / 10000;
+    }
     creates.push(next);
     continue;
   }
   seen.add(next.id);
   const current = dbById.get(next.id);
+  if (current) resolvePackPrice(next, current);
   if (!current) {
     console.log(`⚠️  id ${next.id} («${next.name}») não existe na base de dados — ignorado`);
     continue;
