@@ -10,3 +10,4 @@ next-env.d.ts
 zonesoft-raw*
 .DS_Store
 .claude/settings.local.json
+exports/
