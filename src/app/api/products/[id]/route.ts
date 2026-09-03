@@ -46,6 +46,9 @@ export const PATCH = withApi(async (req, params) => {
       count_parts = CASE WHEN ${body.count_parts !== undefined}
                          THEN ${(body.count_parts as string[]) ?? null} ELSE count_parts END,
       pack_size = COALESCE(${(body.pack_size as number) ?? null}, pack_size),
+      packaging = CASE WHEN ${body.packaging !== undefined}
+                       THEN ${body.packaging ? JSON.stringify(body.packaging) : null}::jsonb
+                       ELSE packaging END,
       active = COALESCE(${(body.active as boolean) ?? null}, active)
     WHERE id = ${id}`;
   return { product: await getProduct(id) };

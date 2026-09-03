@@ -160,6 +160,10 @@ await sql`
 
 // Stock units received per ordered pack (Coca Cola: 1 grade = 24 garrafas).
 await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS pack_size numeric(12,3) NOT NULL DEFAULT 1`;
+// Estrutura de embalagem nomeada, transversal ao sistema (encomendas,
+// contagem, vistas): {order_name, inner_name, inner_per_order, units_per_inner}
+// — pack_size mantém-se como o total derivado (inner_per_order × units_per_inner).
+await sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS packaging jsonb`;
 
 // Small key/value switchboard (e.g. sales_decrement on/off).
 await sql`
