@@ -111,6 +111,26 @@ export async function countHistory(opts: { productId?: number; limit: number }) 
     LIMIT ${opts.limit}`;
 }
 
+/**
+ * Movements (receções, vendas, acertos — everything except the count
+ * adjustments themselves) that happened after each product's last count.
+ * Powers the "locais desatualizados" warning on partial counts.
+ */
+export async function changesSinceLastCount(productIds: number[]) {
+  if (productIds.length === 0) return [];
+  return sql()`
+    SELECT m.product_id, m.reason,
+           SUM(m.delta) AS delta, COUNT(*) AS movements
+    FROM stock_movements m
+    WHERE m.product_id = ANY(${productIds})
+      AND COALESCE(m.ref_type, '') <> 'count'
+      AND m.created_at > COALESCE(
+        (SELECT MAX(c.created_at) FROM stock_counts c WHERE c.product_id = m.product_id),
+        '1970-01-01'::timestamptz)
+    GROUP BY m.product_id, m.reason
+    ORDER BY m.product_id`;
+}
+
 /** Latest count per product — powers "anterior: X · date" on the counting page. */
 export async function latestCounts() {
   return sql()`
