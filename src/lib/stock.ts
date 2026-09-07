@@ -101,6 +101,75 @@ export async function submitCounts(counts: CountInput[], countedBy: string | nul
   return results;
 }
 
+/**
+ * Recalcula o min_level de cada produto a partir do consumo derivado das
+ * vendas das últimas 4 semanas (receitas em sale_components + ligação direta
+ * 1:1 × units_per_sale): média semanal ponderada — 70% as 2 semanas mais
+ * recentes, 30% as 2 anteriores — com margem de segurança percentual
+ * (app_settings 'min_level_margin_pct', default 20) e arredondado para cima.
+ * Só altera produtos com consumo no período; os restantes mantêm o mínimo
+ * definido à mão.
+ */
+export async function recomputeMinLevels(dry: boolean) {
+  const marginRows = await sql()`
+    SELECT value FROM app_settings WHERE key = 'min_level_margin_pct'`;
+  const margin = Number(marginRows[0]?.value ?? '20');
+
+  const rows = await sql()`
+    WITH sales AS (
+      SELECT si.sale_date, si.qty, si.zs_code, si.product_id AS direct_id
+      FROM sale_items si
+      WHERE si.sale_date >= (now() AT TIME ZONE 'Europe/Lisbon')::date - 28
+    ),
+    consumo AS (
+      SELECT sc.product_id,
+             CASE WHEN s.sale_date >= (now() AT TIME ZONE 'Europe/Lisbon')::date - 14
+                  THEN 'recent' ELSE 'older' END AS half,
+             SUM(s.qty * sc.qty_per_sale) AS q
+      FROM sales s
+      JOIN sale_components sc ON sc.zs_code = s.zs_code
+      GROUP BY 1, 2
+      UNION ALL
+      SELECT s.direct_id,
+             CASE WHEN s.sale_date >= (now() AT TIME ZONE 'Europe/Lisbon')::date - 14
+                  THEN 'recent' ELSE 'older' END,
+             SUM(s.qty * COALESCE(p.units_per_sale, 1))
+      FROM sales s
+      JOIN products p ON p.id = s.direct_id
+      WHERE s.direct_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM sale_components sc WHERE sc.zs_code = s.zs_code)
+      GROUP BY 1, 2
+    )
+    SELECT c.product_id, p.name, p.min_level AS old_min,
+           COALESCE(SUM(c.q) FILTER (WHERE c.half = 'recent'), 0) AS recent,
+           COALESCE(SUM(c.q) FILTER (WHERE c.half = 'older'), 0) AS older
+    FROM consumo c
+    JOIN products p ON p.id = c.product_id AND p.active
+    GROUP BY c.product_id, p.name, p.min_level
+    ORDER BY p.name`;
+
+  const changes: { id: number; name: string; old: number | null; novo: number }[] = [];
+  for (const r of rows) {
+    const recent = Number(r.recent ?? 0);
+    const older = Number(r.older ?? 0);
+    if (recent + older <= 0) continue;
+    const weekly = 0.7 * (recent / 2) + 0.3 * (older / 2);
+    const novo = Math.ceil(weekly * (1 + margin / 100));
+    changes.push({
+      id: r.product_id as number,
+      name: r.name as string,
+      old: r.old_min == null ? null : Number(r.old_min),
+      novo,
+    });
+  }
+  if (!dry) {
+    for (const c of changes) {
+      await sql()`UPDATE products SET min_level = ${c.novo} WHERE id = ${c.id}`;
+    }
+  }
+  return { margin, dry, updated: changes.length, changes };
+}
+
 export async function countHistory(opts: { productId?: number; limit: number }) {
   return sql()`
     SELECT c.*, p.name AS product_name, p.unit, p.area, p.category
