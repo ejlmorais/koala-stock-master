@@ -88,9 +88,20 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
 
   // Global kill switch: while 'sales_decrement' is off, sales are stored and
   // matched but never move stock (used until the team finishes the first real
-  // count). Toggle via PUT /api/settings.
-  const settings = await sql()`SELECT value FROM app_settings WHERE key = 'sales_decrement'`;
-  const decrementEnabled = settings[0]?.value !== 'off';
+  // count). Toggle via PUT /api/settings. 'sales_decrement_categories' lists
+  // categories (comma-separated) that decrement even while the global switch
+  // is off — e.g. 'Gelados' once their count is trustworthy.
+  const settings = await sql()`
+    SELECT key, value FROM app_settings
+    WHERE key IN ('sales_decrement', 'sales_decrement_categories')`;
+  const decrementEnabled =
+    settings.find((s) => s.key === 'sales_decrement')?.value !== 'off';
+  const autoCategories = new Set(
+    ((settings.find((s) => s.key === 'sales_decrement_categories')?.value as string) ?? '')
+      .split(',')
+      .map((c) => c.trim().toLowerCase())
+      .filter(Boolean)
+  );
 
   // A physical count is an absolute truth point: sales that happened BEFORE a
   // product's latest count are already reflected in it, so applying them
@@ -102,8 +113,9 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
     FROM stock_counts GROUP BY product_id`) {
     countDates.set(row.product_id as number, row.last_count as string);
   }
-  const stockApplies = (productId: number) => {
-    if (!decrementEnabled) return false;
+  const stockApplies = (productId: number, category: string | null) => {
+    const categoryOn = category != null && autoCategories.has(category.toLowerCase());
+    if (!decrementEnabled && !categoryOn) return false;
     const lastCount = countDates.get(productId);
     return !lastCount || date >= lastCount;
   };
@@ -112,13 +124,14 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
     // Transformation recipe first: a sale product may consume several stock
     // products (Tosta Mista → pão + queijo + fiambre).
     const components = (await sql()`
-      SELECT sc.product_id, sc.qty_per_sale, p.area
+      SELECT sc.product_id, sc.qty_per_sale, p.area, p.category
       FROM sale_components sc
       JOIN products p ON p.id = sc.product_id AND p.active
       WHERE sc.zs_code = ${item.code}`) as unknown as Array<{
       product_id: number;
       qty_per_sale: string;
       area: 'bar' | 'kitchen';
+      category: string | null;
     }>;
 
     // Fallback: direct link via zonesoft_name (name or code) or exact name.
@@ -126,13 +139,13 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
       components.length > 0
         ? []
         : await sql()`
-            SELECT id, area, units_per_sale FROM products
+            SELECT id, area, units_per_sale, category FROM products
             WHERE active AND (lower(zonesoft_name) = lower(${item.name})
                               OR zonesoft_name = ${item.code}
                               OR lower(name) = lower(${item.name}))
             LIMIT 1`;
     const product = products[0] as
-      | { id: number; area: 'bar' | 'kitchen'; units_per_sale: string }
+      | { id: number; area: 'bar' | 'kitchen'; units_per_sale: string; category: string | null }
       | undefined;
 
     await sql()`
@@ -145,7 +158,7 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
       matched++;
       for (const comp of components) {
         const delta = -item.qty * Number(comp.qty_per_sale);
-        if (delta === 0 || !stockApplies(comp.product_id)) continue;
+        if (delta === 0 || !stockApplies(comp.product_id, comp.category)) continue;
         await applyMovement({
           productId: comp.product_id,
           area: comp.area,
@@ -160,7 +173,7 @@ export async function storeDay(day: ZsDailySales): Promise<SyncResult> {
     } else if (product) {
       matched++;
       const delta = -item.qty * Number(product.units_per_sale);
-      if (delta !== 0 && stockApplies(product.id)) {
+      if (delta !== 0 && stockApplies(product.id, product.category)) {
         await applyMovement({
           productId: product.id,
           area: product.area,
