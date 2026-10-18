@@ -152,6 +152,7 @@ export async function validateProduct(raw: Record<string, unknown>): Promise<Pro
     area: area as Area,
     category: str(raw.category),
     supplier: str(raw.supplier),
+    supplier_alt: str(raw.supplier_alt) === str(raw.supplier) ? null : str(raw.supplier_alt),
     supplier_aliases: aliases && aliases.length ? aliases : null,
     origin: origin as Origin,
     unit,
@@ -176,10 +177,10 @@ export async function validateProduct(raw: Record<string, unknown>): Promise<Pro
 export async function createProduct(raw: Record<string, unknown>) {
   const p = await validateProduct(raw);
   const rows = await sql()`
-    INSERT INTO v2.products (name, area, category, supplier, supplier_aliases, origin, unit, unit_label,
+    INSERT INTO v2.products (name, area, category, supplier, supplier_alt, supplier_aliases, origin, unit, unit_label,
       container_name, container_qty, pack_name, pack_qty, pack_nominal_qty, pack_price_net, price_net, iva,
       min_level, count_locations, track_empties, needs_recount, notes, active, legacy_id)
-    VALUES (${p.name}, ${p.area}, ${p.category}, ${p.supplier}, ${p.supplier_aliases}, ${p.origin}, ${p.unit}, ${p.unit_label},
+    VALUES (${p.name}, ${p.area}, ${p.category}, ${p.supplier}, ${p.supplier_alt}, ${p.supplier_aliases}, ${p.origin}, ${p.unit}, ${p.unit_label},
       ${p.container_name}, ${p.container_qty}, ${p.pack_name}, ${p.pack_qty}, ${p.pack_nominal_qty}, ${p.pack_price_net}, ${p.price_net}, ${p.iva},
       ${p.min_level}, ${p.count_locations}, ${p.track_empties}, ${p.needs_recount}, ${p.notes}, ${p.active},
       ${raw.legacy_id == null ? null : Number(raw.legacy_id)})
@@ -212,7 +213,7 @@ export async function updateProduct(id: number, patch: Record<string, unknown>) 
   if (dup[0]) throw new ApiError(409, `já existe um produto chamado "${p.name}"`);
   await sql()`
     UPDATE v2.products SET
-      name = ${p.name}, area = ${p.area}, category = ${p.category}, supplier = ${p.supplier},
+      name = ${p.name}, area = ${p.area}, category = ${p.category}, supplier = ${p.supplier}, supplier_alt = ${p.supplier_alt},
       supplier_aliases = ${p.supplier_aliases}, origin = ${p.origin}, unit = ${p.unit}, unit_label = ${p.unit_label},
       container_name = ${p.container_name}, container_qty = ${p.container_qty},
       pack_name = ${p.pack_name}, pack_qty = ${p.pack_qty}, pack_nominal_qty = ${p.pack_nominal_qty},

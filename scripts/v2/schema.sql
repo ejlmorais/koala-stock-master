@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS v2.products (
   name              text NOT NULL UNIQUE,
   area              text NOT NULL CHECK (area IN ('bar', 'kitchen')),
   category          text,
-  supplier          text,
+  supplier          text,                           -- fornecedor principal
+  supplier_alt      text,                           -- fornecedor secundário (opcional)
   supplier_aliases  text[],                         -- nomes/códigos nos portais
   origin            text NOT NULL DEFAULT 'compra' CHECK (origin IN ('compra', 'producao')),
 
@@ -89,6 +90,8 @@ CREATE TABLE IF NOT EXISTS v2.products (
   CONSTRAINT products_variable_nominal   CHECK (origin = 'producao' OR pack_qty IS NOT NULL OR pack_nominal_qty IS NOT NULL),
   CONSTRAINT products_production_no_pack CHECK (origin = 'compra' OR pack_name IS NULL)
 );
+
+ALTER TABLE v2.products ADD COLUMN IF NOT EXISTS supplier_alt text;
 
 CREATE INDEX IF NOT EXISTS products_legacy_idx ON v2.products (legacy_id);
 

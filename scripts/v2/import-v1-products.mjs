@@ -191,8 +191,9 @@ function derive(p) {
 
   const aliases = Array.isArray(p.supplier_aliases) ? p.supplier_aliases.map(String) : null;
 
+  const [supplier, supplierAlt] = (p.supplier === 'Produção' ? '' : p.supplier ?? '').split(',').map((x) => x.trim() || null);
   return {
-    legacy_id: p.id, name, area: p.area, category: p.category, supplier: p.supplier === 'Produção' ? null : p.supplier,
+    legacy_id: p.id, name, area: p.area, category: p.category, supplier, supplier_alt: supplierAlt ?? null,
     supplier_aliases: aliases, origin, unit, unit_label: unit === 'un' ? unitLabel : null,
     container_name: container?.[0] ?? null, container_qty: container?.[1] ?? null,
     pack_name: pack?.[0] ?? null, pack_qty: pack?.[1] ?? null, pack_nominal_qty: pack?.[2] ?? null,
@@ -238,10 +239,10 @@ await sql.query('TRUNCATE v2.products RESTART IDENTITY CASCADE');
 let n = 0;
 for (const r of rows) {
   await sql`
-    INSERT INTO v2.products (legacy_id, name, area, category, supplier, supplier_aliases, origin, unit, unit_label,
+    INSERT INTO v2.products (legacy_id, name, area, category, supplier, supplier_alt, supplier_aliases, origin, unit, unit_label,
       container_name, container_qty, pack_name, pack_qty, pack_nominal_qty, pack_price_net, price_net, iva,
       min_level, count_locations, track_empties, needs_recount, notes, active)
-    VALUES (${r.legacy_id}, ${r.name}, ${r.area}, ${r.category}, ${r.supplier}, ${r.supplier_aliases}, ${r.origin}, ${r.unit}, ${r.unit_label},
+    VALUES (${r.legacy_id}, ${r.name}, ${r.area}, ${r.category}, ${r.supplier}, ${r.supplier_alt}, ${r.supplier_aliases}, ${r.origin}, ${r.unit}, ${r.unit_label},
       ${r.container_name}, ${r.container_qty}, ${r.pack_name}, ${r.pack_qty}, ${r.pack_nominal_qty},
       ${r.pack_price_net}, ${r.price_net == null ? null : Math.round(r.price_net * 1e6) / 1e6}, ${r.iva},
       ${r.min_level}, ${r.count_locations}, ${r.track_empties}, ${r.needs_recount}, ${r.notes}, ${r.active})`;

@@ -46,6 +46,7 @@ export interface ProductRow {
   area: Area;
   category: string | null;
   supplier: string | null;
+  supplier_alt: string | null;
   supplier_aliases: string[] | null;
   origin: Origin;
   unit: string;
@@ -74,6 +75,7 @@ export interface ProductInput {
   area: Area;
   category: string | null;
   supplier: string | null;
+  supplier_alt: string | null;
   supplier_aliases: string[] | null;
   origin: Origin;
   unit: string;
