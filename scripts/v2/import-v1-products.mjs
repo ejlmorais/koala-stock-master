@@ -50,8 +50,8 @@ const OVERRIDES = {
   'Chouriço (porção)': { name: 'Chouriço assado', origin: 'producao', unit: 'porção' },
   'Pickles (balde)': { skip: 'fundir em Pickles' },
   'Alface Iceberg (uni)': { name: 'Alface Iceberg', unit: 'un', unit_label: 'cabeça', container: null, pack: ['Unidade', 1] },
-  'Tomate Runner (uni)': { unit: 'un', unit_label: 'tomate', container: null, pack: ['Caixa', null, 6] },
-  'Pepino (uni)': { unit: 'un', unit_label: 'pepino', container: null, pack: ['Caixa', null, 4] },
+  'Tomate Runner (uni)': { unit: 'un', unit_label: 'tomate', container: null, pack: ['Caixa', null, 30] },
+  'Pepino (uni)': { unit: 'un', unit_label: 'pepino', container: null, pack: ['Caixa', null, 10] },
   'Espinafre (embalagem)': { name: 'Espinafre', unit: 'g', container: null, pack: ['Embalagem', null, 500] },
   'Sal Fino (500gr)': { name: 'Sal Fino', unit: 'un', unit_label: 'pacote', pack: ['Unidade', 1] },
   'Peito de Frango (vasilha)': { name: 'Peito de Frango', unit: 'kg', pack: ['Vasilha', null, 2] },
@@ -158,7 +158,7 @@ function derive(p) {
     let pname = cleanPackName(pk?.order_name) || null;
     if (!pname || pname === 'Unidade') pname = packSize > 1 ? (unit === 'un' ? 'Caixa' : 'Embalagem') : 'Unidade';
     if (!PACK_NAMES.includes(pname)) { review.push(`nome de embalagem «${pname}»`); }
-    if (variable) pack = [pname, null, packSize > 1 ? packSize : null];
+    if (variable) pack = [pname, null, packSize > 0 ? packSize : 1]; // peso típico (1 quando a V1 não dizia)
     else if (container) {
       const q = packSize / container[1];
       pack = [pname, Number.isInteger(q) && q >= 1 ? q : 1];
