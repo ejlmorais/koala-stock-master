@@ -21,6 +21,7 @@ const REFEICOES_STAFF = [
   'bifana%',
   'tosta%',
   'guacamole%',
+  'batatas fritas',
 ];
 
 /** GET — itens POS elegíveis como refeição (lista fechada, com receita). */
