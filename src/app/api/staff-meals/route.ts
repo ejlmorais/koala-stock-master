@@ -1,4 +1,4 @@
-import { withApi, readJson, requireString } from '@/lib/api';
+import { withApi, readJson, requireString, ApiError } from '@/lib/api';
 import { sql } from '@/lib/db';
 import { applyMovement } from '@/lib/stock';
 
@@ -8,20 +8,36 @@ import { applyMovement } from '@/lib/stock';
  * com ref_type 'staff_meal' para análise separada.
  */
 
-/** GET — itens POS elegíveis como refeição (têm receita ou ligação direta). */
+/** Refeições permitidas ao staff (lista fechada definida pelo Emanuel). */
+const REFEICOES_STAFF = [
+  'coca%cola%',
+  'água das pedras%',
+  'agua das pedras%',
+  'fanta%',
+  'sprite%',
+  'café',
+  'hamburguer%',
+  'prego%',
+  'bifana%',
+  'tosta%',
+  'guacamole%',
+];
+
+/** GET — itens POS elegíveis como refeição (lista fechada, com receita). */
 export const GET = withApi(async () => {
   const meals = await sql()`
     SELECT DISTINCT zp.code, zp.name, zp.familia_name
     FROM zs_products zp
-    WHERE EXISTS (
-            SELECT 1 FROM sale_components sc
-            JOIN products p ON p.id = sc.product_id AND p.active
-            WHERE sc.zs_code = zp.code)
-       OR EXISTS (
-            SELECT 1 FROM products p
-            WHERE p.active AND (lower(p.zonesoft_name) = lower(zp.name)
-                                OR p.zonesoft_name = zp.code
-                                OR lower(p.name) = lower(zp.name)))
+    WHERE zp.name ILIKE ANY(${REFEICOES_STAFF})
+      AND (EXISTS (
+             SELECT 1 FROM sale_components sc
+             JOIN products p ON p.id = sc.product_id AND p.active
+             WHERE sc.zs_code = zp.code)
+        OR EXISTS (
+             SELECT 1 FROM products p
+             WHERE p.active AND (lower(p.zonesoft_name) = lower(zp.name)
+                                 OR p.zonesoft_name = zp.code
+                                 OR lower(p.name) = lower(zp.name))))
     ORDER BY zp.name`;
   return { meals };
 });
@@ -33,6 +49,11 @@ export const POST = withApi(async (req) => {
   const mealName = requireString(body.meal_name, 'meal_name');
   const staffName = requireString(body.staff_name, 'staff_name');
   const createdBy = requireString(body.created_by, 'created_by');
+  const permitida = (await sql()`
+    SELECT 1 FROM zs_products WHERE code = ${zsCode} AND name ILIKE ANY(${REFEICOES_STAFF})`) as unknown as unknown[];
+  if (permitida.length === 0) {
+    throw new ApiError(400, 'refeição fora da lista permitida ao staff');
+  }
   const note = `Refeição staff: ${staffName} — ${mealName}`;
 
   const components = (await sql()`
